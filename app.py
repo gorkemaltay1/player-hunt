@@ -292,7 +292,7 @@ if total > 0:
 _suggestions = get_random_suggestions(_existing_names, count=5)
 if _suggestions:
     _pick = _rng.choice(_suggestions)
-    st.info(f"💡 Try **{_pick['name']}** — {_pick['sport']} · {_pick['country']}")
+    st.info(f"💡 Try a **{_pick['sport']}** player from **{_pick['country']}**!")
 
 # Challenge Card
 if st.session_state.active_challenge is None:
