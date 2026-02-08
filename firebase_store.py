@@ -101,21 +101,27 @@ def add_athlete(room_code: str, name: str, sport: str, country: str | None,
             return False
 
     # Add new athlete
+    if "athletes" not in data:
+        data["athletes"] = {}
+
+    # Sequential order number — always increases
+    existing_orders = [a.get("_order", 0) for a in data["athletes"].values()]
+    next_order = max(existing_orders, default=0) + 1
+
+    now = datetime.utcnow()
+    key = now.strftime("%Y%m%d%H%M%S%f")
+
     athlete = {
         "name": name,
         "sport": sport,
         "country": country,
         "matched_name": matched_name or name,
         "added_by": added_by,
-        "added_at": datetime.now().isoformat(),
+        "added_at": now.isoformat(),
         "challenge_bonus": challenge_bonus,
+        "_order": next_order,
     }
 
-    if "athletes" not in data:
-        data["athletes"] = {}
-
-    # Use timestamp as key
-    key = datetime.now().strftime("%Y%m%d%H%M%S%f")
     data["athletes"][key] = athlete
 
     return save_room_data(room_code, data)
@@ -140,8 +146,8 @@ def get_athletes(room_code: str) -> list[dict]:
     for key, val in athletes_dict.items():
         val["_key"] = key
         athletes.append(val)
-    # Sort by added_at descending (newest first), fall back to key
-    athletes.sort(key=lambda x: x.get("added_at", x.get("_key", "")), reverse=True)
+    # Sort by _order descending (newest first), fall back to _key for old entries
+    athletes.sort(key=lambda x: (x.get("_order", 0), x.get("_key", "")), reverse=True)
     return athletes
 
 
