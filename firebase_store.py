@@ -215,8 +215,8 @@ def reset_streak(room_code: str, player_name: str) -> None:
     save_room_data(room_code, data)
 
 
-def get_unique_counts(room_code: str) -> tuple[int, int, int, int, set]:
-    """Get (total, unique_sports, unique_countries, unique_players, sports_set) from one read."""
+def get_unique_counts(room_code: str) -> tuple[int, int, int, int, set, set]:
+    """Get (total, unique_sports, unique_countries, unique_players, sports_set, countries_set) from one read."""
     athletes = get_athletes(room_code)
     sports = set()
     countries = set()
@@ -226,7 +226,7 @@ def get_unique_counts(room_code: str) -> tuple[int, int, int, int, set]:
         country = a.get("country") or "Unknown"
         countries.add(country)
         players.add(a.get("added_by", "Unknown"))
-    return len(athletes), len(sports), len(countries), len(players), sports
+    return len(athletes), len(sports), len(countries), len(players), sports, countries
 
 
 def calculate_athlete_points(sport: str, country: str | None, athletes: list[dict]) -> tuple[int, int, int]:

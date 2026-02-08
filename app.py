@@ -281,13 +281,40 @@ with streak_col2:
 st.divider()
 
 # Preload room counts (single Firebase read)
-total, unique_sports, unique_countries, unique_players, found_sports_set = get_unique_counts(room_code)
+total, unique_sports, unique_countries, unique_players, found_sports_set, found_countries_set = get_unique_counts(room_code)
 
-# Dynamic suggestion tip
+# Dynamic suggestion tip — varied hints based on room data
 _all_supported = get_supported_sports()[:-1]
 _missing = [s for s in _all_supported if s not in found_sports_set]
-if _missing:
-    st.info(f"💡 Try adding a **{_rng.choice(_missing)}** athlete!")
+
+# Build pool of possible tips
+_tips: list[str] = []
+
+# Missing sport tips
+for s in _missing[:5]:
+    _tips.append(f"Try adding a **{s}** athlete!")
+
+# Missing continent tips — suggest continents with few/no athletes
+_found_continents: dict[str, int] = {}
+for _fc in found_countries_set:
+    _fc_cont = _COUNTRY_TO_CONTINENT.get(_fc)
+    if _fc_cont:
+        _found_continents[_fc_cont] = _found_continents.get(_fc_cont, 0) + 1
+for _cont_name in CONTINENT_MAP:
+    if _found_continents.get(_cont_name, 0) == 0:
+        _tips.append(f"No athletes from **{_cont_name}** yet — can you find one?")
+    elif _found_continents.get(_cont_name, 0) <= 2:
+        _tips.append(f"Only {_found_continents[_cont_name]} from **{_cont_name}** — add more!")
+
+# Country-specific tips from underrepresented continents
+for _cont_name, _cont_countries in CONTINENT_MAP.items():
+    _unfound = [c for c in _cont_countries if c not in found_countries_set]
+    if _unfound:
+        _sample = _rng.choice(_unfound)
+        _tips.append(f"Try an athlete from **{_sample}**!")
+
+if _tips:
+    st.info(f"💡 {_rng.choice(_tips)}")
 
 # Challenge Card
 if st.session_state.active_challenge is None:
