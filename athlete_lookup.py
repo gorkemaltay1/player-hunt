@@ -531,5 +531,34 @@ def get_total_countries() -> int:
         return 0
 
 
+def get_random_suggestions(exclude_names: set[str], count: int = 5) -> list[dict]:
+    """Get random athlete suggestions from local DB, excluding already-found names.
+
+    Returns list of {"name": str, "sport": str, "country": str}.
+    """
+    if not LOCAL_DB_FILE.exists():
+        return []
+    try:
+        conn = sqlite3.connect(LOCAL_DB_FILE)
+        cursor = conn.cursor()
+        # Get a larger pool and filter in Python (SQLite has no good NOT IN for big sets)
+        cursor.execute(
+            "SELECT name, sport, country FROM athletes "
+            "WHERE country IS NOT NULL "
+            "ORDER BY RANDOM() LIMIT ?",
+            (count * 4,)
+        )
+        rows = cursor.fetchall()
+        conn.close()
+
+        results = []
+        for name, sport, country in rows:
+            if name.lower().strip() not in exclude_names and len(results) < count:
+                results.append({"name": name, "sport": sport, "country": country})
+        return results
+    except sqlite3.Error:
+        return []
+
+
 # For backwards compatibility
 SPORT_KEYWORDS = {sport: [] for sport in get_supported_sports()[:-1]}

@@ -6,7 +6,7 @@ import pandas as pd
 import random as _rng
 from datetime import datetime, timedelta
 
-from athlete_lookup import lookup_athlete, get_supported_sports, get_total_countries
+from athlete_lookup import lookup_athlete, get_supported_sports, get_total_countries, get_random_suggestions
 from firebase_store import (
     add_athlete, athlete_exists, get_athletes, get_stats, get_country_stats,
     get_player_stats, get_streak, increment_streak, reset_streak, clear_room,
@@ -283,38 +283,16 @@ st.divider()
 # Preload room counts (single Firebase read)
 total, unique_sports, unique_countries, unique_players, found_sports_set, found_countries_set = get_unique_counts(room_code)
 
-# Dynamic suggestion tip — varied hints based on room data
-_all_supported = get_supported_sports()[:-1]
-_missing = [s for s in _all_supported if s not in found_sports_set]
+# Dynamic suggestion tip — real athlete suggestions from local DB
+_existing_names = set()
+if total > 0:
+    _room_athletes = get_athletes(room_code)
+    _existing_names = {a.get("name", "").lower().strip() for a in _room_athletes}
 
-# Build pool of possible tips
-_tips: list[str] = []
-
-# Missing sport tips
-for s in _missing[:5]:
-    _tips.append(f"Try adding a **{s}** athlete!")
-
-# Missing continent tips — suggest continents with few/no athletes
-_found_continents: dict[str, int] = {}
-for _fc in found_countries_set:
-    _fc_cont = _COUNTRY_TO_CONTINENT.get(_fc)
-    if _fc_cont:
-        _found_continents[_fc_cont] = _found_continents.get(_fc_cont, 0) + 1
-for _cont_name in CONTINENT_MAP:
-    if _found_continents.get(_cont_name, 0) == 0:
-        _tips.append(f"No athletes from **{_cont_name}** yet — can you find one?")
-    elif _found_continents.get(_cont_name, 0) <= 2:
-        _tips.append(f"Only {_found_continents[_cont_name]} from **{_cont_name}** — add more!")
-
-# Country-specific tips from underrepresented continents
-for _cont_name, _cont_countries in CONTINENT_MAP.items():
-    _unfound = [c for c in _cont_countries if c not in found_countries_set]
-    if _unfound:
-        _sample = _rng.choice(_unfound)
-        _tips.append(f"Try an athlete from **{_sample}**!")
-
-if _tips:
-    st.info(f"💡 {_rng.choice(_tips)}")
+_suggestions = get_random_suggestions(_existing_names, count=5)
+if _suggestions:
+    _pick = _rng.choice(_suggestions)
+    st.info(f"💡 Try **{_pick['name']}** — {_pick['sport']} · {_pick['country']}")
 
 # Challenge Card
 if st.session_state.active_challenge is None:
