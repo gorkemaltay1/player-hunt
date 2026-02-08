@@ -702,7 +702,19 @@ def athletes_section():
             })
         df = pd.DataFrame(table_data)
         df = df.sort_values("#", ascending=False).reset_index(drop=True)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(
+            df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "#": st.column_config.NumberColumn(width="small"),
+                "Name": st.column_config.TextColumn(width="medium"),
+                "Sport": st.column_config.TextColumn(width="medium"),
+                "Country": st.column_config.TextColumn(width="medium"),
+                "Points": st.column_config.NumberColumn(width="small"),
+                "Added By": st.column_config.TextColumn(width="medium"),
+            },
+        )
 
         st.caption(f"Total: {len(athletes)} athletes")
 
