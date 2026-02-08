@@ -142,11 +142,16 @@ st.set_page_config(
     layout="wide"
 )
 
-# Session state initialization
+# Session state initialization — restore from URL query params on refresh
+_qp = st.query_params
 if "room_code" not in st.session_state:
-    st.session_state.room_code = None
+    _url_room = _qp.get("room", None)
+    if _url_room and room_exists(_url_room):
+        st.session_state.room_code = _url_room
+    else:
+        st.session_state.room_code = None
 if "player_name" not in st.session_state:
-    st.session_state.player_name = None
+    st.session_state.player_name = _qp.get("player", None)
 if "last_result" not in st.session_state:
     st.session_state.last_result = None
 if "active_challenge" not in st.session_state:
@@ -179,6 +184,7 @@ if not st.session_state.room_code or not st.session_state.player_name:
                 else:
                     st.session_state.room_code = room_code
                     st.session_state.player_name = join_name.strip()
+                    st.query_params.update({"room": room_code, "player": join_name.strip()})
                     st.success("Joining room...")
                     st.rerun()
             else:
@@ -221,6 +227,7 @@ if not st.session_state.room_code or not st.session_state.player_name:
                         if create_room(room_code, create_password, create_name.strip()):
                             st.session_state.room_code = room_code
                             st.session_state.player_name = create_name.strip()
+                            st.query_params.update({"room": room_code, "player": create_name.strip()})
                             st.success(f"Room **{room_code}** created! Share this code with friends.")
                             st.rerun()
                         else:
@@ -260,6 +267,7 @@ with header_col3:
         st.session_state.player_name = None
         st.session_state.last_result = None
         st.session_state.active_challenge = None
+        st.query_params.clear()
         st.rerun()
 
 # Streak Display
