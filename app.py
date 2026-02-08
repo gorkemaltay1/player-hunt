@@ -11,7 +11,8 @@ from firebase_store import (
     add_athlete, athlete_exists, get_athletes, get_stats, get_country_stats,
     get_player_stats, get_streak, increment_streak, reset_streak, clear_room,
     generate_room_code, create_room, verify_room_password, room_exists,
-    get_unique_counts, get_room_data, calculate_athlete_points, get_player_scores
+    get_unique_counts, get_room_data, calculate_athlete_points, get_player_scores,
+    heartbeat, get_active_players
 )
 
 
@@ -185,6 +186,7 @@ if not st.session_state.room_code or not st.session_state.player_name:
                     st.session_state.room_code = room_code
                     st.session_state.player_name = join_name.strip()
                     st.query_params.update({"room": room_code, "player": join_name.strip()})
+                    heartbeat(room_code, join_name.strip())
                     st.success("Joining room...")
                     st.rerun()
             else:
@@ -228,6 +230,7 @@ if not st.session_state.room_code or not st.session_state.player_name:
                             st.session_state.room_code = room_code
                             st.session_state.player_name = create_name.strip()
                             st.query_params.update({"room": room_code, "player": create_name.strip()})
+                            heartbeat(room_code, create_name.strip())
                             st.success(f"Room **{room_code}** created! Share this code with friends.")
                             st.rerun()
                         else:
@@ -269,6 +272,24 @@ with header_col3:
         st.session_state.active_challenge = None
         st.query_params.clear()
         st.rerun()
+
+# Active Players (auto-refresh heartbeat every 10 seconds)
+@st.fragment(run_every=timedelta(seconds=10))
+def active_players_section():
+    rc = st.session_state.room_code
+    pn = st.session_state.player_name
+    heartbeat(rc, pn)
+    active = get_active_players(rc)
+    if active:
+        names = []
+        for p in active:
+            if p["name"] == pn:
+                names.append(f"**{p['name']}** (You)")
+            else:
+                names.append(f"**{p['name']}**")
+        st.markdown(f"🟢 **Online** ({len(active)}): {' · '.join(names)}")
+
+active_players_section()
 
 # Streak Display
 current_streak, best_streak = get_streak(room_code, player_name)

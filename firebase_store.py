@@ -311,6 +311,38 @@ def get_player_scores(room_code: str) -> dict[str, dict]:
     return scores
 
 
+def heartbeat(room_code: str, player_name: str) -> None:
+    """Update last_seen timestamp for a player (presence tracking)."""
+    url = f"{_get_room_url(room_code)}/players/{player_name}/last_seen.json"
+    try:
+        requests.put(url, json=datetime.utcnow().isoformat(), timeout=5)
+    except requests.RequestException:
+        pass
+
+
+def get_active_players(room_code: str, timeout_seconds: int = 60) -> list[dict]:
+    """Get players active within the last timeout_seconds.
+
+    Returns list of {"name": str, "last_seen": str} sorted by last_seen desc.
+    """
+    data = get_room_data(room_code)
+    players = data.get("players", {})
+    now = datetime.utcnow()
+    active = []
+    for name, info in players.items():
+        last_seen = info.get("last_seen")
+        if not last_seen:
+            continue
+        try:
+            dt = datetime.fromisoformat(last_seen)
+            if (now - dt).total_seconds() <= timeout_seconds:
+                active.append({"name": name, "last_seen": last_seen})
+        except (ValueError, TypeError):
+            continue
+    active.sort(key=lambda x: x["last_seen"], reverse=True)
+    return active
+
+
 def clear_room(room_code: str) -> None:
     """Clear all data in a room."""
     save_room_data(room_code, {"athletes": {}, "players": {}, "password_hash": get_room_data(room_code).get("password_hash", "")})
