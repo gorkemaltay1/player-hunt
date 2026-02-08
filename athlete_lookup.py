@@ -15,6 +15,7 @@ LOCAL_DB_FILE = Path(__file__).parent / "athletes_db.sqlite"
 P_SPORT = "P641"           # sport
 P_OCCUPATION = "P106"      # occupation
 P_COUNTRY = "P27"          # country of citizenship
+P_SPORT_COUNTRY = "P1532"  # country for sport
 P_INSTANCE_OF = "P31"      # instance of (to check if human)
 
 # Cache for Q-code to label mapping
@@ -79,6 +80,11 @@ def lookup_athlete(athlete_name: str) -> dict | None:
     # Step 1: Try local database exact match (instant!)
     local_result = _search_local_exact(name)
     if local_result:
+        # If country is missing, try API to fill it in
+        if not local_result.get("country"):
+            api_result = _lookup_via_api(name)
+            if api_result and api_result.get("country"):
+                local_result["country"] = api_result["country"]
         return local_result
 
     # Step 2: For single-word queries, try Wikidata API first (better ranking)
@@ -96,6 +102,10 @@ def lookup_athlete(athlete_name: str) -> dict | None:
         # Multi-word: try local partial first, then API
         local_partial = _search_local_partial(name)
         if local_partial:
+            if not local_partial.get("country"):
+                api_result = _lookup_via_api(name)
+                if api_result and api_result.get("country"):
+                    local_partial["country"] = api_result["country"]
             return local_partial
 
         api_result = _lookup_via_api(name)
@@ -381,15 +391,16 @@ def _normalize_sport(sport: str) -> str:
 
 
 def _extract_country(claims: dict) -> str | None:
-    """Extract country of citizenship from entity claims."""
-    if P_COUNTRY in claims:
-        country_claims = claims[P_COUNTRY]
-        if country_claims:
-            country_id = country_claims[0].get("mainsnak", {}).get("datavalue", {}).get("value", {}).get("id")
-            if country_id:
-                country = _get_label(country_id)
-                if country:
-                    return _normalize_country(country)
+    """Extract country from entity claims. Tries citizenship first, then country for sport."""
+    for prop in (P_COUNTRY, P_SPORT_COUNTRY):
+        if prop in claims:
+            country_claims = claims[prop]
+            if country_claims:
+                country_id = country_claims[0].get("mainsnak", {}).get("datavalue", {}).get("value", {}).get("id")
+                if country_id:
+                    country = _get_label(country_id)
+                    if country:
+                        return _normalize_country(country)
 
     return None
 
