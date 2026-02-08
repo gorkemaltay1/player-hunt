@@ -132,11 +132,16 @@ def athlete_exists(room_code: str, name: str) -> bool:
 
 
 def get_athletes(room_code: str) -> list[dict]:
-    """Get all athletes in a room."""
+    """Get all athletes in a room, sorted newest first."""
     data = get_room_data(room_code)
-    athletes = list(data.get("athletes", {}).values())
-    # Sort by added_at
-    athletes.sort(key=lambda x: x.get("added_at", ""), reverse=True)
+    athletes_dict = data.get("athletes", {})
+    # Include the Firebase key (timestamp-based) for reliable sorting
+    athletes = []
+    for key, val in athletes_dict.items():
+        val["_key"] = key
+        athletes.append(val)
+    # Sort by added_at descending (newest first), fall back to key
+    athletes.sort(key=lambda x: x.get("added_at", x.get("_key", "")), reverse=True)
     return athletes
 
 

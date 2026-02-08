@@ -680,16 +680,19 @@ def athletes_section():
     athletes = get_athletes(rc)
 
     if athletes:
-        table_data = [
-            {
+        table_data = []
+        for a in athletes:
+            pts, _, _ = calculate_athlete_points(a.get("sport", ""), a.get("country"), athletes)
+            ch_bonus = a.get("challenge_bonus", 0)
+            table_data.append({
                 "Name": a.get("matched_name") or a["name"],
                 "Sport": a["sport"],
                 "Country": a.get("country") or "—",
+                "Points": pts + ch_bonus,
                 "Added By": a.get("added_by", "—"),
-            }
-            for a in athletes
-        ]
-        st.dataframe(table_data, use_container_width=True, hide_index=True)
+            })
+        df = pd.DataFrame(table_data)
+        st.dataframe(df, use_container_width=True, hide_index=True)
 
         st.caption(f"Total: {len(athletes)} athletes")
 
