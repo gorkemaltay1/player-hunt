@@ -3,14 +3,15 @@
 import streamlit as st
 import altair as alt
 import pandas as pd
-from datetime import timedelta
+import random as _rng
+from datetime import datetime, timedelta
 
 from athlete_lookup import lookup_athlete, get_supported_sports, get_total_countries
 from firebase_store import (
     add_athlete, athlete_exists, get_athletes, get_stats, get_country_stats,
     get_player_stats, get_streak, increment_streak, reset_streak, clear_room,
     generate_room_code, create_room, verify_room_password, room_exists,
-    get_unique_counts, get_room_data
+    get_unique_counts, get_room_data, calculate_athlete_points, get_player_scores
 )
 
 
@@ -18,6 +19,121 @@ from firebase_store import (
 def cached_lookup(name: str) -> dict | None:
     """Cached athlete lookup to avoid repeated API calls."""
     return lookup_athlete(name)
+
+
+# --- Continent mapping for challenges ---
+CONTINENT_MAP = {
+    "Europe": ["UK", "France", "Germany", "Spain", "Italy", "Netherlands", "Belgium",
+               "Portugal", "Sweden", "Norway", "Denmark", "Finland", "Switzerland",
+               "Austria", "Poland", "Czech Republic", "Greece", "Hungary", "Romania",
+               "Croatia", "Serbia", "Ireland", "Scotland", "Wales", "Ukraine",
+               "Russia", "Turkey", "Bulgaria", "Slovakia", "Slovenia", "Lithuania",
+               "Latvia", "Estonia", "Iceland", "Luxembourg", "Montenegro", "Albania",
+               "North Macedonia", "Bosnia and Herzegovina", "Moldova", "Belarus",
+               "United Kingdom", "Great Britain"],
+    "Asia": ["China", "Japan", "South Korea", "India", "Turkey", "Iran", "Iraq",
+             "Saudi Arabia", "Thailand", "Vietnam", "Philippines", "Indonesia",
+             "Malaysia", "Pakistan", "Bangladesh", "Sri Lanka", "Nepal",
+             "Myanmar", "Cambodia", "Laos", "Mongolia", "Kazakhstan", "Uzbekistan",
+             "Singapore", "Taiwan", "Hong Kong", "Israel", "Lebanon", "Jordan",
+             "Syria", "Afghanistan", "North Korea", "United Arab Emirates", "Qatar",
+             "Bahrain", "Kuwait", "Oman", "Yemen", "Turkmenistan", "Kyrgyzstan",
+             "Tajikistan", "Armenia", "Azerbaijan", "Georgia"],
+    "Africa": ["South Africa", "Nigeria", "Kenya", "Egypt", "Ethiopia", "Ghana",
+               "Cameroon", "Senegal", "Morocco", "Algeria", "Tunisia", "Ivory Coast",
+               "Tanzania", "Uganda", "Zimbabwe", "Mozambique", "Angola", "Zambia",
+               "Mali", "Burkina Faso", "Niger", "Congo", "DR Congo",
+               "Democratic Republic of the Congo", "Madagascar", "Sudan",
+               "Somalia", "Eritrea", "Namibia", "Botswana", "Rwanda", "Togo", "Benin",
+               "Sierra Leone", "Liberia", "Gabon", "Gambia", "Guinea", "Libya"],
+    "North America": ["USA", "Canada", "Mexico", "Cuba", "Jamaica", "Haiti",
+                      "Dominican Republic", "Puerto Rico", "Trinidad and Tobago",
+                      "Costa Rica", "Panama", "Honduras", "El Salvador", "Guatemala",
+                      "Nicaragua", "Bahamas", "Barbados", "United States",
+                      "United States of America"],
+    "South America": ["Brazil", "Argentina", "Colombia", "Chile", "Peru", "Venezuela",
+                      "Ecuador", "Bolivia", "Uruguay", "Paraguay", "Guyana", "Suriname"],
+    "Oceania": ["Australia", "New Zealand", "Fiji", "Papua New Guinea", "Samoa",
+                "Tonga", "Vanuatu", "Solomon Islands"],
+}
+
+# Reverse lookup: country → continent
+_COUNTRY_TO_CONTINENT: dict[str, str] = {}
+for _cont, _countries in CONTINENT_MAP.items():
+    for _c in _countries:
+        _COUNTRY_TO_CONTINENT[_c] = _cont
+
+
+def _format_relative_time(iso_timestamp: str) -> str:
+    """Convert ISO timestamp to relative time string."""
+    try:
+        dt = datetime.fromisoformat(iso_timestamp)
+        diff = datetime.now() - dt
+        seconds = int(diff.total_seconds())
+        if seconds < 60:
+            return "just now"
+        elif seconds < 3600:
+            m = seconds // 60
+            return f"{m}m ago"
+        elif seconds < 86400:
+            h = seconds // 3600
+            return f"{h}h ago"
+        else:
+            d = seconds // 86400
+            return f"{d}d ago"
+    except (ValueError, TypeError):
+        return ""
+
+
+def generate_challenge(found_sports_set: set) -> dict:
+    """Generate a random challenge, biased toward missing sports."""
+    all_sports = get_supported_sports()[:-1]
+    missing = [s for s in all_sports if s not in found_sports_set]
+    continents = list(CONTINENT_MAP.keys())
+
+    # Pick challenge type: sport (40%), continent (30%), combo (30%)
+    roll = _rng.random()
+
+    if roll < 0.4:
+        # Sport challenge
+        pool = missing if missing else all_sports
+        sport = _rng.choice(pool)
+        return {"type": "sport", "sport": sport, "bonus": 3,
+                "text": f"Find a **{sport}** athlete"}
+    elif roll < 0.7:
+        # Continent challenge
+        continent = _rng.choice(continents)
+        return {"type": "continent", "continent": continent, "bonus": 3,
+                "text": f"Add an athlete from **{continent}**"}
+    else:
+        # Combo challenge
+        pool = missing if missing else all_sports
+        sport = _rng.choice(pool)
+        continent = _rng.choice(continents)
+        return {"type": "combo", "sport": sport, "continent": continent, "bonus": 5,
+                "text": f"Find a **{sport}** athlete from **{continent}**"}
+
+
+def check_challenge(challenge: dict | None, sport: str, country: str | None) -> bool:
+    """Check if an added athlete satisfies the active challenge."""
+    if not challenge:
+        return False
+
+    ctype = challenge["type"]
+    if ctype == "sport":
+        return sport == challenge["sport"]
+    elif ctype == "continent":
+        target_continent = challenge["continent"]
+        if not country:
+            return False
+        return _COUNTRY_TO_CONTINENT.get(country) == target_continent
+    elif ctype == "combo":
+        if sport != challenge["sport"]:
+            return False
+        if not country:
+            return False
+        return _COUNTRY_TO_CONTINENT.get(country) == challenge["continent"]
+    return False
 
 
 st.set_page_config(
@@ -33,6 +149,8 @@ if "player_name" not in st.session_state:
     st.session_state.player_name = None
 if "last_result" not in st.session_state:
     st.session_state.last_result = None
+if "active_challenge" not in st.session_state:
+    st.session_state.active_challenge = None
 
 # Login/Join Room Screen
 if not st.session_state.room_code or not st.session_state.player_name:
@@ -141,6 +259,7 @@ with header_col3:
         st.session_state.room_code = None
         st.session_state.player_name = None
         st.session_state.last_result = None
+        st.session_state.active_challenge = None
         st.rerun()
 
 # Streak Display
@@ -168,8 +287,22 @@ total, unique_sports, unique_countries, unique_players, found_sports_set = get_u
 _all_supported = get_supported_sports()[:-1]
 _missing = [s for s in _all_supported if s not in found_sports_set]
 if _missing:
-    import random as _rng
     st.info(f"💡 Try adding a **{_rng.choice(_missing)}** athlete!")
+
+# Challenge Card
+if st.session_state.active_challenge is None:
+    st.session_state.active_challenge = generate_challenge(found_sports_set)
+
+challenge = st.session_state.active_challenge
+ch_col1, ch_col2 = st.columns([5, 1])
+with ch_col1:
+    st.markdown(
+        f"🎯 **Challenge:** {challenge['text']} — **+{challenge['bonus']} bonus pts**"
+    )
+with ch_col2:
+    if st.button("🔄 New", key="reroll_challenge", help="Get a new challenge"):
+        st.session_state.active_challenge = generate_challenge(found_sports_set)
+        st.rerun()
 
 # Input Section
 header_col1, header_col2 = st.columns([6, 1])
@@ -219,9 +352,24 @@ if submitted and athlete_name:
             country = result.get("country")
             matched_name = result.get("matched_name", name)
 
+            # Check challenge
+            active_ch = st.session_state.active_challenge
+            challenge_completed = check_challenge(active_ch, sport, country)
+            ch_bonus = active_ch["bonus"] if challenge_completed else 0
+
+            # Calculate rarity points
+            existing_athletes = get_athletes(room_code)
+            pts, s_bonus, c_bonus = calculate_athlete_points(sport, country, existing_athletes)
+            total_pts = pts + ch_bonus
+
             # Add to Firebase
-            add_athlete(room_code, name, sport, country, matched_name, player_name)
+            add_athlete(room_code, name, sport, country, matched_name, player_name,
+                        challenge_bonus=ch_bonus)
             current, best, is_record = increment_streak(room_code, player_name)
+
+            # Generate new challenge if completed
+            if challenge_completed:
+                st.session_state.active_challenge = generate_challenge(found_sports_set)
 
             # Store result for display
             st.session_state.last_result = {
@@ -231,7 +379,12 @@ if submitted and athlete_name:
                 "sport": sport,
                 "country": country,
                 "streak": current,
-                "is_record": is_record
+                "is_record": is_record,
+                "points": total_pts,
+                "sport_bonus": s_bonus,
+                "country_bonus": c_bonus,
+                "challenge_completed": challenge_completed,
+                "challenge_bonus": ch_bonus,
             }
         else:
             reset_streak(room_code, player_name)
@@ -242,8 +395,8 @@ if st.session_state.last_result:
     result = st.session_state.last_result
 
     if result["type"] == "success":
-        # Preview card with Wikipedia link
-        prev_col1, prev_col2, prev_col3 = st.columns(3)
+        # Preview card with Wikipedia link — 4 columns
+        prev_col1, prev_col2, prev_col3, prev_col4 = st.columns(4)
 
         # Athlete with Wikipedia link
         wiki_url = "https://en.wikipedia.org/wiki/" + result["matched"].replace(" ", "_")
@@ -253,10 +406,19 @@ if st.session_state.last_result:
         prev_col2.metric("Sport", result["sport"])
         prev_col3.metric("Country", result["country"] or "—")
 
+        pts_display = f"+{result.get('points', 1)} pts"
+        prev_col4.metric("Points", pts_display)
+
+        # Challenge completion celebration
+        if result.get("challenge_completed"):
+            st.success(f"🎯 **Challenge Complete!** +{result['challenge_bonus']} bonus points!")
+            st.balloons()
+
         # Success message with streak
         if result["is_record"] and result["streak"] > 1:
             st.success(f"✓ Added by {player_name}! 🎉 NEW RECORD: {result['streak']} streak!")
-            st.balloons()
+            if not result.get("challenge_completed"):
+                st.balloons()
         elif result["streak"] >= 5:
             st.success(f"✓ Added by {player_name}! 🔥 {result['streak']} streak!")
         elif result["streak"] >= 3:
@@ -285,6 +447,29 @@ if total > 0:
 
 st.divider()
 
+# Live Feed (auto-refresh every 3 seconds)
+@st.fragment(run_every=timedelta(seconds=3))
+def live_feed_section():
+    rc = st.session_state.room_code
+    athletes = get_athletes(rc)
+    recent = athletes[:10]  # already sorted desc by added_at
+
+    if recent:
+        st.markdown("**Live Feed**")
+        for a in recent:
+            name = a.get("matched_name") or a.get("name", "?")
+            sport = a.get("sport", "?")
+            country = a.get("country") or "?"
+            added_by = a.get("added_by", "?")
+            time_ago = _format_relative_time(a.get("added_at", ""))
+            st.markdown(
+                f"**{added_by}** added **{name}** · {sport} · {country} · {time_ago}"
+            )
+
+live_feed_section()
+
+st.divider()
+
 # Stats Section (manual refresh via button)
 @st.fragment
 def stats_section():
@@ -298,9 +483,18 @@ def stats_section():
     rc = st.session_state.room_code
     pn = st.session_state.player_name
 
-    stats = get_stats(rc)
-    country_stats = get_country_stats(rc)
-    player_stats = get_player_stats(rc)
+    # Single Firebase read — compute all stats locally
+    all_athletes = get_athletes(rc)
+    stats: dict[str, int] = {}
+    country_stats: dict[str, int] = {}
+    player_stats: dict[str, int] = {}
+    for a in all_athletes:
+        s = a.get("sport", "Unknown")
+        c = a.get("country") or "Unknown"
+        p = a.get("added_by", "Unknown")
+        stats[s] = stats.get(s, 0) + 1
+        country_stats[c] = country_stats.get(c, 0) + 1
+        player_stats[p] = player_stats.get(p, 0) + 1
 
     if stats:
         tab1, tab2, tab3, tab4, tab5 = st.tabs(["By Sport", "By Country", "Leaderboard", "Collection", "Achievements"])
@@ -339,12 +533,16 @@ def stats_section():
 
         with tab3:
             st.subheader("🏆 Leaderboard")
-            sorted_players = sorted(player_stats.items(), key=lambda x: -x[1])
+            player_scores = get_player_scores(rc)
+            sorted_by_pts = sorted(player_scores.items(), key=lambda x: -x[1]["total_pts"])
 
-            for i, (pname, count) in enumerate(sorted_players):
+            for i, (pname, sc) in enumerate(sorted_by_pts):
                 medal = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else f"{i+1}."
                 is_me = " (You)" if pname == pn else ""
-                st.markdown(f"### {medal} {pname}{is_me} — {count} athletes")
+                st.markdown(
+                    f"### {medal} {pname}{is_me} — {sc['total_pts']} pts "
+                    f"({sc['count']} athletes, avg {sc['avg']})"
+                )
 
         with tab4:
             st.subheader("📦 Collection")

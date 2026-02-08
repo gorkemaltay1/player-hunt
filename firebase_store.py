@@ -90,7 +90,7 @@ def save_room_data(room_code: str, data: dict) -> bool:
 
 
 def add_athlete(room_code: str, name: str, sport: str, country: str | None,
-               matched_name: str | None, added_by: str) -> bool:
+               matched_name: str | None, added_by: str, challenge_bonus: int = 0) -> bool:
     """Add an athlete to a room. Returns False if already exists."""
     data = get_room_data(room_code)
 
@@ -107,7 +107,8 @@ def add_athlete(room_code: str, name: str, sport: str, country: str | None,
         "country": country,
         "matched_name": matched_name or name,
         "added_by": added_by,
-        "added_at": datetime.now().isoformat()
+        "added_at": datetime.now().isoformat(),
+        "challenge_bonus": challenge_bonus,
     }
 
     if "athletes" not in data:
@@ -226,6 +227,77 @@ def get_unique_counts(room_code: str) -> tuple[int, int, int, int, set]:
         countries.add(country)
         players.add(a.get("added_by", "Unknown"))
     return len(athletes), len(sports), len(countries), len(players), sports
+
+
+def calculate_athlete_points(sport: str, country: str | None, athletes: list[dict]) -> tuple[int, int, int]:
+    """Calculate points for an athlete based on rarity. Pure function, no Firebase calls.
+
+    Returns (total_pts, sport_bonus, country_bonus).
+    """
+    total = len(athletes) or 1  # avoid division by zero
+
+    # Count sport frequency
+    sport_count = sum(1 for a in athletes if a.get("sport") == sport)
+    sport_pct = sport_count / total * 100
+
+    if sport_pct <= 2:
+        sport_bonus = 4   # Epic
+    elif sport_pct <= 5:
+        sport_bonus = 3   # Rare
+    elif sport_pct <= 15:
+        sport_bonus = 2   # Uncommon
+    elif sport_pct <= 30:
+        sport_bonus = 1   # Common
+    else:
+        sport_bonus = 0   # Saturated
+
+    # Count country frequency
+    country_bonus = 0
+    if country:
+        country_count = sum(1 for a in athletes if a.get("country") == country)
+        country_pct = country_count / total * 100
+
+        if country_pct <= 2:
+            country_bonus = 2
+        elif country_pct <= 5:
+            country_bonus = 1
+        else:
+            country_bonus = 0
+
+    total_pts = 1 + sport_bonus + country_bonus  # base 1
+    return total_pts, sport_bonus, country_bonus
+
+
+def get_player_scores(room_code: str) -> dict[str, dict]:
+    """Get per-player scores from one Firebase read.
+
+    Returns {player_name: {"total_pts": int, "count": int, "avg": float}}.
+    """
+    athletes = get_athletes(room_code)
+    if not athletes:
+        return {}
+
+    # Group athletes by player
+    player_athletes: dict[str, list[dict]] = {}
+    for a in athletes:
+        player = a.get("added_by", "Unknown")
+        player_athletes.setdefault(player, []).append(a)
+
+    scores: dict[str, dict] = {}
+    for player, p_athletes in player_athletes.items():
+        total_pts = 0
+        for a in p_athletes:
+            pts, _, _ = calculate_athlete_points(a.get("sport", ""), a.get("country"), athletes)
+            challenge_bonus = a.get("challenge_bonus", 0)
+            total_pts += pts + challenge_bonus
+        count = len(p_athletes)
+        scores[player] = {
+            "total_pts": total_pts,
+            "count": count,
+            "avg": round(total_pts / count, 1) if count else 0,
+        }
+
+    return scores
 
 
 def clear_room(room_code: str) -> None:
