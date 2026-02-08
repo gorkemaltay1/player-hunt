@@ -689,10 +689,11 @@ def athletes_section():
 
     if athletes:
         table_data = []
-        for a in athletes:
+        for i, a in enumerate(athletes):
             pts, _, _ = calculate_athlete_points(a.get("sport", ""), a.get("country"), athletes)
             ch_bonus = a.get("challenge_bonus", 0)
             table_data.append({
+                "#": len(athletes) - i,
                 "Name": a.get("matched_name") or a["name"],
                 "Sport": a["sport"],
                 "Country": a.get("country") or "—",
@@ -700,6 +701,7 @@ def athletes_section():
                 "Added By": a.get("added_by", "—"),
             })
         df = pd.DataFrame(table_data)
+        df = df.sort_values("#", ascending=False).reset_index(drop=True)
         st.dataframe(df, use_container_width=True, hide_index=True)
 
         st.caption(f"Total: {len(athletes)} athletes")
