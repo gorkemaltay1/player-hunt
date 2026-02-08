@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.xlsx
+~$*
+countries_overview.csv
+nul
+data.json
+athletes_db.json
